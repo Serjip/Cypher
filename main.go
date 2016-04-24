@@ -1,12 +1,19 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tv42/base58"
 )
 
 const Extension = ".cypher"
@@ -51,12 +58,13 @@ func main() {
 
 	err := filepath.Walk(input, visit)
 	fmt.Printf("filepath.Walk() returned %v\n", err)
-
 }
 
 var skipPath string
 
 func visit(path string, f os.FileInfo, err error) error {
+
+	filename := f.Name()
 
 	if err != nil {
 
@@ -66,7 +74,7 @@ func visit(path string, f os.FileInfo, err error) error {
 
 		return nil
 
-	} else if string(f.Name()[0]) == "." {
+	} else if string(filename[0]) == "." {
 
 		skipPath = path
 		return nil
@@ -75,12 +83,75 @@ func visit(path string, f os.FileInfo, err error) error {
 
 		return nil
 
-	} else if strings.HasSuffix(f.Name(), Extension) {
+	} else if strings.HasSuffix(filename, Extension) {
 
 		return nil
 	}
 
-	fmt.Printf("Visited: %s\n", path)
+	key := key(password)
+
+	encName, err := encrypt([]byte("example key 1234"), []byte(filename))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%s -> %s%s(%s)\n", filename, encodeBase58(encName), Extension, encName)
 
 	return nil
+}
+
+func key(text string) ([]byte, error) {
+	len := len(text)
+	if len < 16 {
+		len = 16
+	} else if len < 24 {
+		len = 24
+	} else if len < 32 {
+		len = 32
+	} else {
+		return nil, errors.New("The password cannot be more than 32 char")
+	}
+	vector := make([]byte, len)
+	copy(vector[:], text)
+	return vector
+}
+
+func encrypt(key, text []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	ciphertext := make([]byte, aes.BlockSize+len(text))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return nil, err
+	}
+	cfb := cipher.NewCFBEncrypter(block, iv)
+	cfb.XORKeyStream(ciphertext[aes.BlockSize:], text)
+	return ciphertext, nil
+}
+
+func decrypt(key, text []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(text) < aes.BlockSize {
+		return nil, errors.New("ciphertext too short")
+	}
+	iv := text[:aes.BlockSize]
+	text = text[aes.BlockSize:]
+	cfb := cipher.NewCFBDecrypter(block, iv)
+	cfb.XORKeyStream(text, text)
+	return text, nil
+}
+
+func encodeBase58(text []byte) []byte {
+	num := new(big.Int)
+	num.SetBytes(text)
+	return base58.EncodeBig(nil, num)
+}
+
+func decodeBase58(text []byte) []byte {
+	dec, _ := base58.DecodeToBig(text)
+	return dec.Bytes()
 }
