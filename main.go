@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -8,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -16,7 +18,10 @@ import (
 	"github.com/tv42/base58"
 )
 
+// Extesion of the chipher files
 const Extension = ".cypher"
+
+var Key []byte
 
 func main() {
 	fmt.Println("Hello")
@@ -26,7 +31,6 @@ func main() {
 	flag.StringVar(&password, "p", "", "-password	for encrypt/decrypt files")
 	flag.StringVar(&input, "i", "", "-input	file or directory")
 	flag.BoolVar(&decrypt, "d", false, "--decrypt	input")
-
 	flag.Parse()
 
 	if len(password) == 0 {
@@ -56,13 +60,106 @@ func main() {
 		}
 	}
 
-	err := filepath.Walk(input, visit)
-	fmt.Printf("filepath.Walk() returned %v\n", err)
+	// Get the key
+	var err error
+	Key, err = key(password)
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	// Check is directory of file
+	var isDir bool
+	isDir, err = IsDirectory(input)
+
+	if decrypt {
+
+		err = filepath.Walk(input, decryptWalker)
+
+	} else {
+
+		err = filepath.Walk(input, encryptWalker)
+
+	}
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }
 
 var skipPath string
 
-func visit(path string, f os.FileInfo, err error) error {
+func decryptWalker(path string, f os.FileInfo, err error) error {
+
+	filename := f.Name()
+
+	if err != nil {
+
+		return err
+
+	} else if strings.HasSuffix(filename, Extension) {
+
+		// Decrypt name
+		name := strings.TrimSuffix(filename, Extension)
+		nameBytes := decodeBase58([]byte(name))
+
+		nameBytes, err := decrypt(Key, nameBytes)
+		if err != nil {
+			return err
+		}
+
+		// read content from your file
+		var data []byte
+		data, err = ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Set new filepath
+		newFilepath := strings.TrimSuffix(path, filename)
+		newFilepath = fmt.Sprintf("%s%s", newFilepath, nameBytes)
+
+		// Check the file existing
+		if _, err := os.Stat(newFilepath); err == nil {
+			fmt.Printf("%s file already exists\n", newFilepath)
+			return nil
+		}
+
+		// create a new file for saving the encrypted data.
+		var file *os.File
+		file, err = os.Create(newFilepath)
+		if err != nil {
+			return err
+		}
+
+		// Encrypt file
+		data, err = decrypt(Key, data)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(file, bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+
+		// Finaly delete encrypted file
+		err = os.Remove(path)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("%s -> %s\n", filename, nameBytes)
+
+		return nil
+	}
+
+	return nil
+}
+
+func encryptWalker(path string, f os.FileInfo, err error) error {
 
 	filename := f.Name()
 
@@ -88,13 +185,44 @@ func visit(path string, f os.FileInfo, err error) error {
 		return nil
 	}
 
-	key := key(password)
-
-	encName, err := encrypt([]byte("example key 1234"), []byte(filename))
+	// Encrypt name
+	var encryptedName []byte
+	encryptedName, err = encrypt(Key, []byte(filename))
 	if err != nil {
-		panic(err)
+		return err
 	}
-	fmt.Printf("%s -> %s%s(%s)\n", filename, encodeBase58(encName), Extension, encName)
+	encryptedName = encodeBase58(encryptedName)
+	// Print it to console
+	fmt.Printf("%s -> %s%s\n", filename, encryptedName, Extension)
+
+	// read content from your file
+	var data []byte
+	data, err = ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	// Set new filepath
+	newFilepath := strings.TrimSuffix(path, filename)
+	newFilepath = fmt.Sprintf("%s%s%s", newFilepath, encryptedName, Extension)
+
+	// create a new file for saving the encrypted data.
+	var file *os.File
+	file, err = os.Create(newFilepath)
+	if err != nil {
+		return err
+	}
+
+	// Encrypt file
+	data, err = encrypt(Key, data)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(file, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -112,7 +240,12 @@ func key(text string) ([]byte, error) {
 	}
 	vector := make([]byte, len)
 	copy(vector[:], text)
-	return vector
+	return vector, nil
+}
+
+func IsDirectory(path string) (bool, error) {
+	fileInfo, err := os.Stat(path)
+	return fileInfo.IsDir(), err
 }
 
 func encrypt(key, text []byte) ([]byte, error) {
