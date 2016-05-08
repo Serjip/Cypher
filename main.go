@@ -1,35 +1,26 @@
 package main
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/tv42/base58"
+	"github.com/Serjip/cypher/coder"
 )
 
-// Extesion of the chipher files
-const Extension = ".cypher"
-
 var Key []byte
+var skipPath string
 
 func main() {
-	fmt.Println("Hello")
 
-	var password, input string
+	var password, path string
 	var decrypt bool
+
 	flag.StringVar(&password, "p", "", "-password	for encrypt/decrypt files")
-	flag.StringVar(&input, "i", "", "-input	file or directory")
+	flag.StringVar(&path, "i", "", "-input	file or directory path")
 	flag.BoolVar(&decrypt, "d", false, "--decrypt	input")
 	flag.Parse()
 
@@ -50,10 +41,10 @@ func main() {
 		}
 	}
 
-	if len(input) == 0 {
+	if len(path) == 0 {
 
 		var err error
-		input, err = os.Getwd()
+		path, err = os.Getwd()
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -69,17 +60,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check is directory of file
-	var isDir bool
-	isDir, err = IsDirectory(input)
+	// Get file info about the input path
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
+	// Choouse decrypt or encrypt filepath
 	if decrypt {
 
-		err = filepath.Walk(input, decryptWalker)
+		if fileInfo.IsDir() {
+			err = filepath.Walk(path, decryptWalker)
+		} else {
+			err = coder.DecryptFile(path, fileInfo, Key)
+		}
 
 	} else {
 
-		err = filepath.Walk(input, encryptWalker)
+		if fileInfo.IsDir() {
+			err = filepath.Walk(path, encryptWalker)
+		} else {
+			err = coder.EncryptFile(path, fileInfo, Key)
+		}
 
 	}
 
@@ -89,71 +92,15 @@ func main() {
 	}
 }
 
-var skipPath string
-
 func decryptWalker(path string, f os.FileInfo, err error) error {
-
-	filename := f.Name()
 
 	if err != nil {
 
 		return err
 
-	} else if strings.HasSuffix(filename, Extension) {
+	} else if strings.HasSuffix(f.Name(), coder.Extension) {
 
-		// Decrypt name
-		name := strings.TrimSuffix(filename, Extension)
-		nameBytes := decodeBase58([]byte(name))
-
-		nameBytes, err := decrypt(Key, nameBytes)
-		if err != nil {
-			return err
-		}
-
-		// read content from your file
-		var data []byte
-		data, err = ioutil.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		// Set new filepath
-		newFilepath := strings.TrimSuffix(path, filename)
-		newFilepath = fmt.Sprintf("%s%s", newFilepath, nameBytes)
-
-		// Check the file existing
-		if _, err := os.Stat(newFilepath); err == nil {
-			fmt.Printf("%s file already exists\n", newFilepath)
-			return nil
-		}
-
-		// create a new file for saving the encrypted data.
-		var file *os.File
-		file, err = os.Create(newFilepath)
-		if err != nil {
-			return err
-		}
-
-		// Encrypt file
-		data, err = decrypt(Key, data)
-		if err != nil {
-			return err
-		}
-
-		_, err = io.Copy(file, bytes.NewReader(data))
-		if err != nil {
-			return err
-		}
-
-		// Finaly delete encrypted file
-		err = os.Remove(path)
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("%s -> %s\n", filename, nameBytes)
-
-		return nil
+		return coder.DecryptFile(path, f, Key)
 	}
 
 	return nil
@@ -180,51 +127,14 @@ func encryptWalker(path string, f os.FileInfo, err error) error {
 
 		return nil
 
-	} else if strings.HasSuffix(filename, Extension) {
+	} else if strings.HasSuffix(filename, coder.Extension) {
 
 		return nil
 	}
 
-	// Encrypt name
-	var encryptedName []byte
-	encryptedName, err = encrypt(Key, []byte(filename))
-	if err != nil {
-		return err
-	}
-	encryptedName = encodeBase58(encryptedName)
-	// Print it to console
-	fmt.Printf("%s -> %s%s\n", filename, encryptedName, Extension)
+	fmt.Printf("Start encrypt file path %s\n", path)
 
-	// read content from your file
-	var data []byte
-	data, err = ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	// Set new filepath
-	newFilepath := strings.TrimSuffix(path, filename)
-	newFilepath = fmt.Sprintf("%s%s%s", newFilepath, encryptedName, Extension)
-
-	// create a new file for saving the encrypted data.
-	var file *os.File
-	file, err = os.Create(newFilepath)
-	if err != nil {
-		return err
-	}
-
-	// Encrypt file
-	data, err = encrypt(Key, data)
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(file, bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return coder.EncryptFile(path, f, Key)
 }
 
 func key(text string) ([]byte, error) {
@@ -241,50 +151,4 @@ func key(text string) ([]byte, error) {
 	vector := make([]byte, len)
 	copy(vector[:], text)
 	return vector, nil
-}
-
-func IsDirectory(path string) (bool, error) {
-	fileInfo, err := os.Stat(path)
-	return fileInfo.IsDir(), err
-}
-
-func encrypt(key, text []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	ciphertext := make([]byte, aes.BlockSize+len(text))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, err
-	}
-	cfb := cipher.NewCFBEncrypter(block, iv)
-	cfb.XORKeyStream(ciphertext[aes.BlockSize:], text)
-	return ciphertext, nil
-}
-
-func decrypt(key, text []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	if len(text) < aes.BlockSize {
-		return nil, errors.New("ciphertext too short")
-	}
-	iv := text[:aes.BlockSize]
-	text = text[aes.BlockSize:]
-	cfb := cipher.NewCFBDecrypter(block, iv)
-	cfb.XORKeyStream(text, text)
-	return text, nil
-}
-
-func encodeBase58(text []byte) []byte {
-	num := new(big.Int)
-	num.SetBytes(text)
-	return base58.EncodeBig(nil, num)
-}
-
-func decodeBase58(text []byte) []byte {
-	dec, _ := base58.DecodeToBig(text)
-	return dec.Bytes()
 }
