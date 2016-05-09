@@ -69,6 +69,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// If the file has Extension .cypher
+	// And set default action decrypt
+	if !fileInfo.IsDir() && strings.HasSuffix(fileInfo.Name(), coder.Ext) && !decrypt {
+		decrypt = true
+	}
+
 	// Choouse decrypt or encrypt filepath
 	if decrypt {
 
@@ -88,6 +94,9 @@ func main() {
 		} else {
 
 			err = coder.DecryptFile(path, fileInfo, Key)
+			if err == nil {
+				remove(path, fileInfo)
+			}
 		}
 
 	} else {
@@ -108,7 +117,9 @@ func main() {
 		} else {
 
 			err = coder.EncryptFile(path, fileInfo, Key)
-
+			if err == nil {
+				remove(path, fileInfo)
+			}
 		}
 
 	}
@@ -123,10 +134,6 @@ func WalkNoneRecursive(root string, walkFn filepath.WalkFunc) error {
 
 	files, err := ioutil.ReadDir(root)
 	for _, f := range files {
-
-		if f.IsDir() {
-			continue
-		}
 
 		filepath := filepath.Join(root, f.Name())
 		if err = walkFn(filepath, f, err); err != nil {
@@ -143,12 +150,15 @@ func decryptWalker(path string, f os.FileInfo, err error) error {
 
 		return err
 
-	} else if strings.HasSuffix(f.Name(), coder.Extension) {
+	} else if !f.IsDir() && strings.HasSuffix(f.Name(), coder.Ext) {
 
-		return coder.DecryptFile(path, f, Key)
+		err = coder.DecryptFile(path, f, Key)
+
+		if err == nil {
+			remove(path, f)
+		}
 	}
-
-	return nil
+	return err
 }
 
 func encryptWalker(path string, f os.FileInfo, err error) error {
@@ -172,14 +182,16 @@ func encryptWalker(path string, f os.FileInfo, err error) error {
 
 		return nil
 
-	} else if strings.HasSuffix(filename, coder.Extension) {
+	} else if strings.HasSuffix(filename, coder.Ext) {
 
 		return nil
 	}
 
-	fmt.Printf("Start encrypt file path %s\n", path)
-
-	return coder.EncryptFile(path, f, Key)
+	err = coder.EncryptFile(path, f, Key)
+	if err == nil {
+		remove(path, f)
+	}
+	return err
 }
 
 func key(text string) ([]byte, error) {
@@ -196,4 +208,20 @@ func key(text string) ([]byte, error) {
 	vector := make([]byte, len)
 	copy(vector[:], text)
 	return vector, nil
+}
+
+func remove(path string, f os.FileInfo) {
+
+	fmt.Printf("remove %s? ", f.Name())
+	var text string
+	fmt.Scan(&text)
+	switch strings.ToLower(text) {
+	case "y", "yes", "yeah", "yep", "yea", "yup", "true":
+		os.Remove(path)
+	case "n", "no", "nope", "not", "nay", "nix", "false":
+		break
+	default:
+		fmt.Println("Invalid input. Type yes or no.")
+		remove(path, f)
+	}
 }

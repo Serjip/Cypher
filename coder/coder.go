@@ -17,7 +17,7 @@ import (
 )
 
 // Extesion of the chipher files
-const Extension = ".cypher"
+const Ext = ".cypher"
 
 func EncryptFile(path string, f os.FileInfo, key []byte) error {
 
@@ -27,8 +27,6 @@ func EncryptFile(path string, f os.FileInfo, key []byte) error {
 		return err
 	}
 	filename = encodeBase58(filename)
-	// Print it to console
-	fmt.Printf("%s -> %s%s\n", f.Name(), filename, Extension)
 
 	// read content from your file
 	var data []byte
@@ -39,7 +37,7 @@ func EncryptFile(path string, f os.FileInfo, key []byte) error {
 
 	// Set new filepath
 	newFilepath := strings.TrimSuffix(path, f.Name())
-	newFilepath = fmt.Sprintf("%s%s%s", newFilepath, filename, Extension)
+	newFilepath = fmt.Sprintf("%s%s%s", newFilepath, filename, Ext)
 
 	// create a new file for saving the encrypted data.
 	var file *os.File
@@ -59,13 +57,8 @@ func EncryptFile(path string, f os.FileInfo, key []byte) error {
 		return err
 	}
 
-	fmt.Printf("remove %s?", f.Name())
-	var deleteFlag bool
-	fmt.Scan(&deleteFlag)
-
-	if deleteFlag {
-		os.Remove(path)
-	}
+	// Print it to console
+	fmt.Printf("%s -> %s%s\n", f.Name(), filename, Ext)
 
 	return nil
 }
@@ -77,13 +70,13 @@ func DecryptFile(path string, f os.FileInfo, key []byte) error {
 		return errors.New(text)
 	}
 
-	if !strings.HasSuffix(f.Name(), Extension) {
-		text := fmt.Sprintf("%s invalid filename. The file must have the extension %s", path, Extension)
+	if !strings.HasSuffix(f.Name(), Ext) {
+		text := fmt.Sprintf("%s invalid filename. The file must have the extension %s", path, Ext)
 		return errors.New(text)
 	}
 
 	// Decrypt name
-	name := strings.TrimSuffix(f.Name(), Extension)
+	name := strings.TrimSuffix(f.Name(), Ext)
 	nameBytes := decodeBase58([]byte(name))
 	nameBytes, err := decrypt(key, nameBytes)
 
@@ -126,14 +119,7 @@ func DecryptFile(path string, f os.FileInfo, key []byte) error {
 		return err
 	}
 
-	fmt.Printf("remove %s?", f.Name())
-	var deleteFlag bool
-	fmt.Scan(&deleteFlag)
-
-	if deleteFlag {
-		os.Remove(path)
-	}
-
+	// Print out to console
 	fmt.Printf("%s -> %s\n", f.Name(), nameBytes)
 
 	return nil
