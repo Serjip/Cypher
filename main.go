@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,11 +18,12 @@ var skipPath string
 func main() {
 
 	var password, path string
-	var decrypt bool
+	var decrypt, recursive bool
 
-	flag.StringVar(&password, "p", "", "-password	for encrypt/decrypt files")
-	flag.StringVar(&path, "i", "", "-input	file or directory path")
-	flag.BoolVar(&decrypt, "d", false, "--decrypt	input")
+	flag.StringVar(&password, "p", "", "password	 for encrypt/decrypt files")
+	flag.StringVar(&path, "i", "", "input file or directory path")
+	flag.BoolVar(&decrypt, "d", false, "decrypt file or directory. default false")
+	flag.BoolVar(&recursive, "R", false, "recursive directories")
 	flag.Parse()
 
 	if len(password) == 0 {
@@ -70,16 +72,38 @@ func main() {
 	// Choouse decrypt or encrypt filepath
 	if decrypt {
 
+		// If its directory check recursivity
 		if fileInfo.IsDir() {
-			err = filepath.Walk(path, decryptWalker)
+
+			if recursive {
+
+				err = filepath.Walk(path, decryptWalker)
+
+			} else {
+
+				err = WalkNoneRecursive(path, decryptWalker)
+
+			}
+			// Otherwise decrypt the file
 		} else {
+
 			err = coder.DecryptFile(path, fileInfo, Key)
 		}
 
 	} else {
 
 		if fileInfo.IsDir() {
-			err = filepath.Walk(path, encryptWalker)
+
+			if recursive {
+
+				err = filepath.Walk(path, encryptWalker)
+
+			} else {
+
+				err = WalkNoneRecursive(path, encryptWalker)
+
+			}
+
 		} else {
 			err = coder.EncryptFile(path, fileInfo, Key)
 		}
@@ -90,6 +114,24 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+}
+
+func WalkNoneRecursive(root string, walkFn filepath.WalkFunc) error {
+
+	files, err := ioutil.ReadDir(root)
+	for _, f := range files {
+
+		if f.IsDir() {
+			continue
+		}
+
+		filepath := filepath.Join(root, f.Name())
+		if err = walkFn(filepath, f, err); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func decryptWalker(path string, f os.FileInfo, err error) error {

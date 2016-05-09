@@ -22,7 +22,7 @@ const Extension = ".cypher"
 func EncryptFile(path string, f os.FileInfo, key []byte) error {
 
 	// Encrypt name
-	filename, err := encrypt(key, []byte(f.Name()), false)
+	filename, err := encrypt(key, []byte(f.Name()))
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func EncryptFile(path string, f os.FileInfo, key []byte) error {
 	}
 
 	// Encrypt file
-	data, err = encrypt(key, data, true)
+	data, err = encrypt(key, data)
 	if err != nil {
 		return err
 	}
@@ -69,18 +69,16 @@ func DecryptFile(path string, f os.FileInfo, key []byte) error {
 		return errors.New(text)
 	}
 
-	filename := f.Name()
-
-	if !strings.HasSuffix(filename, Extension) {
-		text := fmt.Sprintf("%s invalid filename", path)
+	if !strings.HasSuffix(f.Name(), Extension) {
+		text := fmt.Sprintf("%s invalid filename. The file must have the extension %s", path, Extension)
 		return errors.New(text)
 	}
 
 	// Decrypt name
-	name := strings.TrimSuffix(filename, Extension)
+	name := strings.TrimSuffix(f.Name(), Extension)
 	nameBytes := decodeBase58([]byte(name))
-
 	nameBytes, err := decrypt(key, nameBytes)
+
 	if err != nil {
 		return err
 	}
@@ -93,13 +91,13 @@ func DecryptFile(path string, f os.FileInfo, key []byte) error {
 	}
 
 	// Set new filepath
-	newFilepath := strings.TrimSuffix(path, filename)
+	newFilepath := strings.TrimSuffix(path, f.Name())
 	newFilepath = fmt.Sprintf("%s%s", newFilepath, nameBytes)
 
 	// Check the file existing
 	if _, err := os.Stat(newFilepath); err == nil {
-		fmt.Printf("%s file already exists\n", newFilepath)
-		return nil
+		text := fmt.Sprintf("%s file already exists\n", newFilepath)
+		return errors.New(text)
 	}
 
 	// create a new file for saving the encrypted data.
@@ -120,28 +118,20 @@ func DecryptFile(path string, f os.FileInfo, key []byte) error {
 		return err
 	}
 
-	// Finaly delete encrypted file
-	err = os.Remove(path)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("%s -> %s\n", filename, nameBytes)
+	fmt.Printf("%s -> %s\n", f.Name(), nameBytes)
 
 	return nil
 }
 
-func encrypt(key, text []byte, userRandIV bool) ([]byte, error) {
+func encrypt(key, text []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 	ciphertext := make([]byte, aes.BlockSize+len(text))
 	iv := ciphertext[:aes.BlockSize]
-	if userRandIV {
-		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-			return nil, err
-		}
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return nil, err
 	}
 	cfb := cipher.NewCFBEncrypter(block, iv)
 	cfb.XORKeyStream(ciphertext[aes.BlockSize:], text)
