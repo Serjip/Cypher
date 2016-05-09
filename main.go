@@ -92,6 +92,7 @@ func main() {
 
 	} else {
 
+		// If its directory check recursivity
 		if fileInfo.IsDir() {
 
 			if recursive {
@@ -105,7 +106,9 @@ func main() {
 			}
 
 		} else {
+
 			err = coder.EncryptFile(path, fileInfo, Key)
+
 		}
 
 	}

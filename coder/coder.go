@@ -59,6 +59,14 @@ func EncryptFile(path string, f os.FileInfo, key []byte) error {
 		return err
 	}
 
+	fmt.Printf("remove %s?", f.Name())
+	var deleteFlag bool
+	fmt.Scan(&deleteFlag)
+
+	if deleteFlag {
+		os.Remove(path)
+	}
+
 	return nil
 }
 
@@ -116,6 +124,14 @@ func DecryptFile(path string, f os.FileInfo, key []byte) error {
 	_, err = io.Copy(file, bytes.NewReader(data))
 	if err != nil {
 		return err
+	}
+
+	fmt.Printf("remove %s?", f.Name())
+	var deleteFlag bool
+	fmt.Scan(&deleteFlag)
+
+	if deleteFlag {
+		os.Remove(path)
 	}
 
 	fmt.Printf("%s -> %s\n", f.Name(), nameBytes)
